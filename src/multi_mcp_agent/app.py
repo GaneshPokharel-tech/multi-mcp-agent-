@@ -1,4 +1,5 @@
 import hashlib
+import html
 import json
 import uuid
 
@@ -35,6 +36,12 @@ if "last_tools_used" not in st.session_state:
 
 if "last_agent_state" not in st.session_state:
     st.session_state.last_agent_state = "Ready"
+
+if "last_activity_steps" not in st.session_state:
+    st.session_state.last_activity_steps = []
+
+if "last_activity_agent" not in st.session_state:
+    st.session_state.last_activity_agent = None
 
 if "indexed_upload_keys" not in st.session_state:
     st.session_state.indexed_upload_keys = set()
@@ -291,6 +298,113 @@ st.markdown(
             line-height: 1.55;
         }
 
+
+        .agent-map {
+            max-width: 900px;
+            margin: 1.35rem auto 1.45rem auto;
+        }
+
+        .supervisor-card {
+            width: min(280px, 88%);
+            margin: 0 auto;
+            padding: 0.82rem 1rem;
+            border-radius: 17px;
+            border: 1px solid var(--border-strong);
+            background: var(--surface);
+            box-shadow: 0 14px 40px var(--shadow);
+            text-align: center;
+            backdrop-filter: blur(18px);
+        }
+
+        .supervisor-kicker {
+            color: #7c3aed;
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        .supervisor-title {
+            color: var(--text);
+            font-size: 0.92rem;
+            font-weight: 760;
+            margin-top: 0.18rem;
+        }
+
+        .supervisor-copy {
+            color: var(--muted);
+            font-size: 0.70rem;
+            margin-top: 0.18rem;
+        }
+
+        .agent-connector {
+            width: 1px;
+            height: 24px;
+            margin: 0 auto;
+            background: linear-gradient(
+                to bottom,
+                rgba(124, 58, 237, 0.55),
+                var(--border)
+            );
+        }
+
+        .agent-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .agent-card {
+            min-height: 132px;
+            padding: 0.92rem;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            box-shadow: 0 14px 42px var(--shadow);
+            backdrop-filter: blur(16px);
+        }
+
+        .agent-card-head {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            margin-bottom: 0.58rem;
+        }
+
+        .agent-icon {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            display: grid;
+            place-items: center;
+            border-radius: 10px;
+            background: rgba(108, 92, 231, 0.10);
+            font-size: 1rem;
+        }
+
+        .agent-name {
+            color: var(--text);
+            font-size: 0.82rem;
+            font-weight: 760;
+        }
+
+        .agent-role {
+            color: var(--muted);
+            font-size: 0.67rem;
+            margin-top: 0.08rem;
+        }
+
+        .agent-tools {
+            color: var(--muted);
+            font-size: 0.70rem;
+            line-height: 1.48;
+        }
+
+        .agent-tools strong {
+            color: var(--text);
+            font-weight: 680;
+        }
+
         .capability-grid {
             max-width: 900px;
             margin: 1.1rem auto 1.35rem auto;
@@ -513,14 +627,157 @@ st.markdown(
             margin-top: 0.25rem;
         }
 
+        .activity-float {
+            position: fixed;
+            top: 5.1rem;
+            right: 1.35rem;
+            width: 286px;
+            z-index: 999;
+            padding: 0.9rem;
+            border-radius: 18px;
+            border: 1px solid var(--border-strong);
+            background: var(--surface);
+            box-shadow: 0 18px 54px var(--shadow);
+            backdrop-filter: blur(22px);
+        }
+
+        .activity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.7rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .activity-title {
+            color: var(--text);
+            font-size: 0.82rem;
+            font-weight: 760;
+        }
+
+        .activity-live {
+            padding: 0.2rem 0.42rem;
+            border-radius: 999px;
+            background: rgba(34, 197, 94, 0.10);
+            color: #22a957;
+            font-size: 0.62rem;
+            font-weight: 760;
+            letter-spacing: 0.06em;
+        }
+
+        .activity-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.55rem;
+            padding: 0.42rem 0;
+        }
+
+        .activity-step + .activity-step {
+            border-top: 1px solid var(--border);
+        }
+
+        .activity-dot {
+            width: 22px;
+            height: 22px;
+            flex: 0 0 22px;
+            border-radius: 7px;
+            display: grid;
+            place-items: center;
+            background: rgba(108, 92, 231, 0.10);
+            color: #7c3aed;
+            font-size: 0.68rem;
+            font-weight: 800;
+        }
+
+        .activity-step-title {
+            color: var(--text);
+            font-size: 0.76rem;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .activity-step-copy {
+            color: var(--muted);
+            font-size: 0.66rem;
+            margin-top: 0.12rem;
+            line-height: 1.35;
+        }
+
+        @media (max-width: 1120px) {
+            .activity-float {
+                position: static;
+                width: auto;
+                max-width: 900px;
+                margin: 0 auto 0.8rem auto;
+            }
+        }
+
         [data-testid="stExpander"] {
             border: 1px solid var(--border) !important;
             background: var(--surface) !important;
             border-radius: 14px !important;
         }
 
+        .approval-shell {
+            max-width: 900px;
+            margin: 0.8rem auto 1rem auto;
+            padding: 1rem 1.05rem;
+            border-radius: 18px;
+            border: 1px solid rgba(245, 158, 11, 0.30);
+            background: var(--surface);
+            box-shadow: 0 16px 46px var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .approval-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.72rem;
+        }
+
+        .approval-icon {
+            width: 38px;
+            height: 38px;
+            flex: 0 0 38px;
+            border-radius: 11px;
+            display: grid;
+            place-items: center;
+            background: rgba(245, 158, 11, 0.12);
+            color: #d97706;
+            font-weight: 800;
+        }
+
+        .approval-title {
+            color: var(--text);
+            font-size: 0.92rem;
+            font-weight: 760;
+        }
+
+        .approval-agent {
+            color: #7c3aed;
+            font-size: 0.72rem;
+            font-weight: 720;
+            margin-top: 0.12rem;
+        }
+
+        .approval-copy {
+            color: var(--muted);
+            font-size: 0.76rem;
+            line-height: 1.48;
+            margin-top: 0.28rem;
+        }
+
+        .approval-safe-note {
+            margin-top: 0.72rem;
+            padding-top: 0.62rem;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 0.68rem;
+        }
+
         @media (max-width: 1050px) {
-            .capability-grid {
+            .capability-grid,
+            .agent-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
@@ -535,7 +792,8 @@ st.markdown(
                 margin-top: 2.5rem;
             }
 
-            .capability-grid {
+            .capability-grid,
+            .agent-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -568,27 +826,246 @@ except Exception as exc:
 
 
 def render_agent_stream(event_stream):
+    # The live execution panel replaces the previous completed path.
+    st.session_state.last_activity_steps = []
+    st.session_state.last_activity_agent = None
+
+    state_placeholder = st.empty()
+    activity_placeholder = st.empty()
     response_placeholder = st.empty()
+
     streamed_text = ""
+    activity_steps = []
+    active_agent = None
 
-    # Show the assistant immediately while the model/tool is working.
-    response_placeholder.markdown(
-        """
-        <div class="ai-thinking">
-            <span class="ai-thinking-robot">🤖</span>
-            <span>Thinking</span>
-            <span class="thinking-dots">...</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    agent_labels = {
+        "productivity": "Productivity Agent",
+        "developer": "Developer Agent",
+        "document": "Document Agent",
+        "utility": "Utility Agent",
+    }
 
-    st.session_state.last_agent_state = "Thinking"
+    agent_descriptions = {
+        "productivity": "Gmail and Calendar",
+        "developer": "Git repository operations",
+        "document": "PDF and RAG retrieval",
+        "utility": "Weather, Fetch and YouTube",
+    }
+
+    def add_or_update_step(
+        key,
+        icon,
+        title,
+        detail,
+        status="active",
+    ):
+        for step in activity_steps:
+            if step["key"] == key:
+                step.update(
+                    {
+                        "icon": icon,
+                        "title": title,
+                        "detail": detail,
+                        "status": status,
+                    }
+                )
+                return
+
+        activity_steps.append(
+            {
+                "key": key,
+                "icon": icon,
+                "title": title,
+                "detail": detail,
+                "status": status,
+            }
+        )
+
+    def render_activity():
+        if not activity_steps:
+            activity_placeholder.empty()
+            return
+
+        rows = []
+
+        for step in activity_steps:
+            icon = html.escape(
+                str(step["icon"])
+            )
+            title = html.escape(
+                str(step["title"])
+            )
+            detail = html.escape(
+                str(step["detail"])
+            )
+
+            rows.append(
+                '<div class="activity-step">'
+                f'<div class="activity-dot">{icon}</div>'
+                '<div>'
+                f'<div class="activity-step-title">{title}</div>'
+                f'<div class="activity-step-copy">{detail}</div>'
+                '</div>'
+                '</div>'
+            )
+
+        activity_html = (
+            '<div class="activity-float">'
+            '<div class="activity-header">'
+            '<div class="activity-title">Agent activity</div>'
+            '<div class="activity-live">LIVE</div>'
+            '</div>'
+            + "".join(rows)
+            + '</div>'
+        )
+
+        activity_placeholder.markdown(
+            activity_html,
+            unsafe_allow_html=True,
+        )
+
+    state_placeholder.caption("Routing request…")
+    st.session_state.last_agent_state = "Routing"
 
     for event in event_stream:
         event_type = event.get("type")
 
-        if event_type == "token":
+        # -------------------------------------------------
+        # Supervisor routing
+        # -------------------------------------------------
+
+        if event_type == "activity":
+            stage = event.get("stage")
+
+            if stage == "routing":
+                add_or_update_step(
+                    "supervisor",
+                    "S",
+                    "Supervisor",
+                    "Routing request to the right specialist",
+                )
+
+                state_placeholder.caption(
+                    "Supervisor routing request…"
+                )
+
+                render_activity()
+
+            elif stage == "approval_resume":
+                action = event.get("action")
+
+                if action == "approve":
+                    add_or_update_step(
+                        "approval",
+                        "✓",
+                        "Human approval",
+                        "Approved — resuming protected action",
+                        status="done",
+                    )
+
+                    state_placeholder.caption(
+                        "Resuming approved action…"
+                    )
+
+                else:
+                    add_or_update_step(
+                        "approval",
+                        "×",
+                        "Human approval",
+                        "Action cancelled",
+                        status="done",
+                    )
+
+                    state_placeholder.caption(
+                        "Applying cancellation…"
+                    )
+
+                render_activity()
+
+        # -------------------------------------------------
+        # Specialist selected
+        # -------------------------------------------------
+
+        elif event_type == "agent":
+            active_agent = event.get("agent")
+
+            label = agent_labels.get(
+                active_agent,
+                active_agent or "Specialist Agent",
+            )
+
+            detail = agent_descriptions.get(
+                active_agent,
+                "Handling the request",
+            )
+
+            add_or_update_step(
+                "supervisor",
+                "✓",
+                "Supervisor",
+                f"Routed to {label}",
+                status="done",
+            )
+
+            add_or_update_step(
+                f"agent:{active_agent}",
+                "●",
+                label,
+                detail,
+            )
+
+            state_placeholder.caption(
+                f"{label} working…"
+            )
+
+            st.session_state.last_agent_state = label
+
+            render_activity()
+
+        # -------------------------------------------------
+        # Tool started
+        # -------------------------------------------------
+
+        elif event_type == "tool_start":
+            tool_name = event.get(
+                "tool",
+                "Tool",
+            )
+
+            add_or_update_step(
+                f"tool:{tool_name}",
+                "⚙",
+                tool_name,
+                "Running tool",
+            )
+
+            render_activity()
+
+        # -------------------------------------------------
+        # Tool completed
+        # -------------------------------------------------
+
+        elif event_type == "tool_done":
+            tool_name = event.get(
+                "tool",
+                "Tool",
+            )
+
+            add_or_update_step(
+                f"tool:{tool_name}",
+                "✓",
+                tool_name,
+                "Tool completed",
+                status="done",
+            )
+
+            render_activity()
+
+        # -------------------------------------------------
+        # User-facing streamed answer
+        # -------------------------------------------------
+
+        elif event_type == "token":
             token = event.get("text", "")
             streamed_text += token
 
@@ -596,34 +1073,77 @@ def render_agent_stream(event_stream):
                 streamed_text + "▌"
             )
 
+        # -------------------------------------------------
+        # Approval pause
+        # -------------------------------------------------
+
         elif event_type == "approval":
+            add_or_update_step(
+                "approval",
+                "!",
+                "Human approval",
+                "Waiting for your decision",
+            )
+
+            render_activity()
+
+            state_placeholder.empty()
             response_placeholder.empty()
-            st.session_state.last_agent_state = "Approval required"
+
+            st.session_state.last_agent_state = (
+                "Approval required"
+            )
+
             return "approval"
 
+        # -------------------------------------------------
+        # Error
+        # -------------------------------------------------
+
         elif event_type == "error":
+            state_placeholder.empty()
+            activity_placeholder.empty()
             response_placeholder.empty()
 
             kind = event.get("kind")
-            message = event.get("message", "Unknown error")
+            message = event.get(
+                "message",
+                "Unknown error",
+            )
+
             st.session_state.last_agent_state = "Error"
 
             if kind == "quota":
-                st.error("Gemini quota/rate limit has been reached.")
+                st.error(
+                    "Gemini quota/rate limit has been reached."
+                )
             elif kind == "timeout":
-                st.error("The request timed out. Please try again.")
+                st.error(
+                    "The request timed out. Please try again."
+                )
             elif kind == "unavailable":
                 st.error(
-                    "Gemini is temporarily unavailable because of high demand. "
-                    "Please try again shortly."
+                    "Gemini is temporarily unavailable because "
+                    "of high demand. Please try again shortly."
                 )
             else:
-                st.error(f"Agent error: {message}")
+                st.error(
+                    f"Agent error: {message}"
+                )
 
             return "error"
 
+        # -------------------------------------------------
+        # Completed
+        # -------------------------------------------------
+
         elif event_type == "done":
-            final_response = event.get("response", "")
+            state_placeholder.empty()
+
+            final_response = event.get(
+                "response",
+                "",
+            )
 
             response_placeholder.markdown(
                 final_response
@@ -631,24 +1151,123 @@ def render_agent_stream(event_stream):
                 or "Request completed."
             )
 
-            tools_used = event.get("tools_used", [])
-            st.session_state.last_tools_used = tools_used
+            tools_used = event.get(
+                "tools_used",
+                [],
+            )
+
+            st.session_state.last_tools_used = (
+                tools_used
+            )
+
+            if active_agent:
+                label = agent_labels.get(
+                    active_agent,
+                    active_agent,
+                )
+
+                add_or_update_step(
+                    f"agent:{active_agent}",
+                    "✓",
+                    label,
+                    "Response completed",
+                    status="done",
+                )
+
+            add_or_update_step(
+                "complete",
+                "✓",
+                "Completed",
+                (
+                    f"{len(tools_used)} tool(s) used"
+                    if tools_used
+                    else "No tool call required"
+                ),
+                status="done",
+            )
+
+            render_activity()
+
+            # Persist the completed visual execution path so
+            # it remains visible after Streamlit reruns.
+            st.session_state.last_activity_steps = [
+                dict(step)
+                for step in activity_steps
+            ]
+            st.session_state.last_activity_agent = active_agent
+
             st.session_state.last_agent_state = "Ready"
 
             if tools_used:
                 st.markdown(
-                    '<div class="tool-note">Tools used: '
-                    + ", ".join(tools_used)
+                    '<div class="tool-note">'
+                    + (
+                        html.escape(
+                            agent_labels.get(
+                                active_agent,
+                                active_agent or "Agent",
+                            )
+                        )
+                    )
+                    + " · Tools used: "
+                    + html.escape(", ".join(tools_used))
                     + "</div>",
                     unsafe_allow_html=True,
                 )
 
             if event.get("draft_created"):
-                st.toast("Gmail draft created successfully.")
+                st.toast(
+                    "Gmail draft created successfully."
+                )
 
             return "done"
 
     return None
+
+
+def render_persisted_activity():
+    steps = st.session_state.get(
+        "last_activity_steps",
+        [],
+    )
+
+    if not steps:
+        return
+
+    rows = []
+
+    for step in steps:
+        icon = html.escape(
+            str(step.get("icon", "•"))
+        )
+        title = html.escape(
+            str(step.get("title", "Activity"))
+        )
+        detail = html.escape(
+            str(step.get("detail", ""))
+        )
+
+        rows.append(
+            '<div class="activity-step">'
+            f'<div class="activity-dot">{icon}</div>'
+            '<div>'
+            f'<div class="activity-step-title">{title}</div>'
+            f'<div class="activity-step-copy">{detail}</div>'
+            '</div>'
+            '</div>'
+        )
+
+    st.markdown(
+        '<div class="activity-float">'
+        '<div class="activity-header">'
+        '<div class="activity-title">Last agent activity</div>'
+        '<div class="activity-live">DONE</div>'
+        '</div>'
+        + "".join(rows)
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+
 
 
 def get_thread_documents():
@@ -972,10 +1591,13 @@ if not saved_messages and not pending_approval:
         """
         <div class="hero-shell">
             <div class="hero-mark">✦</div>
-            <div class="hero-title">Hi, how can I help you?</div>
+            <div class="hero-title">
+                One request. The right agent handles it.
+            </div>
             <div class="hero-copy">
-                Work with your connected MCP tools, ask questions about indexed PDFs,
-                and keep every answer grounded in the active capability.
+                A supervisor routes each request to a focused specialist.
+                When tools run, the live activity panel shows the execution
+                path without exposing internal reasoning.
             </div>
         </div>
         """,
@@ -983,54 +1605,66 @@ if not saved_messages and not pending_approval:
     )
 
     st.markdown(
-        """
-        <div class="capability-grid">
-            <div class="capability-card">
-                <div class="capability-icon">🌦️</div>
-                <div class="capability-title">Weather</div>
-                <div class="capability-copy">Current conditions and forecasts.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">✉️</div>
-                <div class="capability-title">Gmail</div>
-                <div class="capability-copy">Search, read, and create drafts.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">📅</div>
-                <div class="capability-title">Calendar</div>
-                <div class="capability-copy">Inspect events and protected updates.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">📄</div>
-                <div class="capability-title">PDF RAG</div>
-                <div class="capability-copy">Hybrid retrieval with page citations.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">🌐</div>
-                <div class="capability-title">Fetch</div>
-                <div class="capability-copy">Read public web content safely.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">⑂</div>
-                <div class="capability-title">Git</div>
-                <div class="capability-copy">Inspect and manage repository actions.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">▶️</div>
-                <div class="capability-title">YouTube</div>
-                <div class="capability-copy">Find and open requested music.</div>
-            </div>
-            <div class="capability-card">
-                <div class="capability-icon">🧠</div>
-                <div class="capability-title">Memory</div>
-                <div class="capability-copy">Persistent thread context with SQLite.</div>
-            </div>
-        </div>
-        """,
+        """<div class="agent-map">
+<div class="supervisor-card">
+<div class="supervisor-kicker">Orchestrator</div>
+<div class="supervisor-title">✦ Supervisor</div>
+<div class="supervisor-copy">Understands the request and selects the right specialist</div>
+</div>
+<div class="agent-connector"></div>
+<div class="agent-grid">
+<div class="agent-card">
+<div class="agent-card-head">
+<div class="agent-icon">✉</div>
+<div>
+<div class="agent-name">Productivity</div>
+<div class="agent-role">Communication & planning</div>
+</div>
+</div>
+<div class="agent-tools"><strong>Gmail</strong> search, read, drafts<br><strong>Calendar</strong> events and updates</div>
+</div>
+<div class="agent-card">
+<div class="agent-card-head">
+<div class="agent-icon">⑂</div>
+<div>
+<div class="agent-name">Developer</div>
+<div class="agent-role">Repository operations</div>
+</div>
+</div>
+<div class="agent-tools"><strong>Git</strong> status, log, diff, branches, commits and protected write actions</div>
+</div>
+<div class="agent-card">
+<div class="agent-card-head">
+<div class="agent-icon">▤</div>
+<div>
+<div class="agent-name">Document</div>
+<div class="agent-role">Grounded document retrieval</div>
+</div>
+</div>
+<div class="agent-tools"><strong>PDF RAG</strong> indexing, hybrid search, document inventory and citations</div>
+</div>
+<div class="agent-card">
+<div class="agent-card-head">
+<div class="agent-icon">⌁</div>
+<div>
+<div class="agent-name">Utility</div>
+<div class="agent-role">External utility tools</div>
+</div>
+</div>
+<div class="agent-tools"><strong>Weather</strong>, public web fetch and <strong>YouTube</strong> actions</div>
+</div>
+</div>
+</div>""",
         unsafe_allow_html=True,
     )
 
 if saved_messages:
+    if (
+        st.session_state.last_activity_steps
+        and not pending_approval
+    ):
+        render_persisted_activity()
+
     st.markdown(
         f"""
         <div class="status-strip">
@@ -1066,27 +1700,115 @@ live_turn_slot = st.container()
 # =========================================================
 
 if pending_approval:
-    st.warning("Human approval required")
-    st.write(
-        pending_approval.get(
-            "message",
-            "The agent wants to perform a protected action.",
-        )
+    approval_agent = pending_approval.get(
+        "agent",
+        "specialist",
     )
 
-    tool_calls = pending_approval.get("tool_calls", [])
+    approval_agent_labels = {
+        "productivity": "Productivity Agent",
+        "developer": "Developer Agent",
+        "document": "Document Agent",
+        "utility": "Utility Agent",
+    }
 
-    for index, tool_call in enumerate(tool_calls, start=1):
-        name = tool_call.get("name", "Unknown tool")
-        args = tool_call.get("args", {})
+    approval_agent_label = approval_agent_labels.get(
+        approval_agent,
+        "Specialist Agent",
+    )
 
-        with st.expander(f"Action {index} · {name}", expanded=True):
+    approval_message = pending_approval.get(
+        "message",
+        "A protected action requires your approval.",
+    )
+
+    st.markdown(
+        f"""
+        <div class="approval-shell">
+            <div class="approval-head">
+                <div class="approval-icon">!</div>
+                <div>
+                    <div class="approval-title">
+                        Human approval required
+                    </div>
+                    <div class="approval-agent">
+                        {html.escape(approval_agent_label)}
+                    </div>
+                    <div class="approval-copy">
+                        {html.escape(approval_message)}
+                    </div>
+                </div>
+            </div>
+            <div class="approval-safe-note">
+                The action will not run until you approve it.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tool_calls = pending_approval.get(
+        "tool_calls",
+        [],
+    )
+
+    for index, tool_call in enumerate(
+        tool_calls,
+        start=1,
+    ):
+        name = tool_call.get(
+            "name",
+            "Unknown tool",
+        )
+
+        args = tool_call.get(
+            "args",
+            {},
+        )
+
+        with st.expander(
+            f"Protected action {index} · {name}",
+            expanded=True,
+        ):
+            st.caption(
+                f"Requested by {approval_agent_label}"
+            )
+
             st.code(
-                json.dumps(args, indent=2, default=str),
+                json.dumps(
+                    args,
+                    indent=2,
+                    default=str,
+                ),
                 language="json",
             )
 
-    approve_column, cancel_column = st.columns(2)
+    cancel_column, approve_column = st.columns(
+        [1, 1]
+    )
+
+    with cancel_column:
+        if st.button(
+            "Cancel action",
+            use_container_width=True,
+        ):
+            with live_turn_slot:
+                with st.chat_message(
+                    "assistant",
+                    avatar="🤖",
+                ):
+                    result = render_agent_stream(
+                        runtime.resume_approval(
+                            st.session_state.thread_id,
+                            approved=False,
+                        )
+                    )
+
+            if result in {
+                "done",
+                "approval",
+            }:
+                st.rerun()
 
     with approve_column:
         if st.button(
@@ -1095,7 +1817,10 @@ if pending_approval:
             use_container_width=True,
         ):
             with live_turn_slot:
-                with st.chat_message("assistant", avatar="🤖"):
+                with st.chat_message(
+                    "assistant",
+                    avatar="🤖",
+                ):
                     result = render_agent_stream(
                         runtime.resume_approval(
                             st.session_state.thread_id,
@@ -1103,28 +1828,14 @@ if pending_approval:
                         )
                     )
 
-            if result in {"done", "approval"}:
+            if result in {
+                "done",
+                "approval",
+            }:
                 st.rerun()
 
-    with cancel_column:
-        if st.button(
-            "Cancel action",
-            use_container_width=True,
-        ):
-            with live_turn_slot:
-                with st.chat_message("assistant", avatar="🤖"):
-                    result = render_agent_stream(
-                        runtime.resume_approval(
-                            st.session_state.thread_id,
-                            approved=False,
-                        )
-                    )
-
-            if result in {"done", "approval"}:
-                st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
+
 
 
 # =========================================================

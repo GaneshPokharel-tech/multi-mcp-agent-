@@ -1,407 +1,94 @@
 # Multi MCP Agent
 
-A production-oriented learning project that demonstrates how an AI agent can use multiple real tools through a **single Model Context Protocol (MCP) server**.
+A local multi-agent AI application built with **LangGraph**, **Model Context Protocol (MCP)**, **Gemini**, **Streamlit**, and a custom local **PDF RAG** pipeline.
 
-The application combines:
+The application uses:
 
-- Streamlit
-- Google Gemini
-- LangGraph
-- LangChain MCP
-- MCP Python SDK
-- WeatherAPI
-- Gmail API
-- Google Calendar API
-- Git
-- YouTube
-- Public URL fetching
-- Advanced local PDF RAG
-- Human approval for protected actions
-- Persistent conversation memory
-
-The goal of the project is to build a real multi-tool AI agent rather than a simple chatbot.
+- one unified MCP server
+- one Supervisor Agent
+- four specialist agents
+- specialist-specific tool boundaries
+- human approval for protected actions
+- persistent conversation memory
+- local hybrid PDF RAG
+- live execution telemetry in the UI
 
 ---
 
-# Project Goal
-
-The main goal is to understand and implement the complete agentic MCP workflow:
+## Architecture
 
 ```text
-User
- ↓
-Streamlit UI
- ↓
-LangGraph Agent
- ↓
-Google Gemini
- ↓
-Tool Decision
- ↓
-MCP Adapter
- ↓
-Single MCP Server
- ↓
-External Service / Local Tool / RAG Engine
- ↓
-Tool Result
- ↓
-Gemini
- ↓
-Final Response
+                         User
+                           │
+                           ▼
+                    Streamlit UI
+                       app.py
+                           │
+                           ▼
+                    AgentRuntime
+                      agent.py
+                           │
+                           ▼
+                      Supervisor
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+ Productivity Agent   Developer Agent   Document Agent
+        │                  │                  │
+ Gmail + Calendar          Git              PDF RAG
+        │
+        └────────────────────────────┐
+                                     │
+                                     ▼
+                               Utility Agent
+                                     │
+                           Weather / Fetch / YouTube
 ```
 
-The LLM does not directly communicate with external services.
-
-Instead, the MCP server acts as the controlled interface between the AI agent and the available capabilities.
+Each specialist receives only the MCP tools required for its domain.
 
 ---
 
-# Architecture
+# Multi-Agent Design
+
+## Supervisor Agent
+
+The Supervisor analyzes every request and routes it to the correct specialist.
+
+Possible destinations:
 
 ```text
-┌──────────────────────────────────────┐
-│                USER                  │
-│        Streamlit Web Interface       │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────┐
-│               app.py                 │
-│                                      │
-│ • Chat UI                            │
-│ • Light / Dark mode                  │
-│ • Chat history                       │
-│ • PDF upload                         │
-│ • Automatic PDF indexing             │
-│ • Indexed document management        │
-│ • Human approval UI                  │
-│ • Streaming responses                │
-└──────────────────┬───────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────┐
-│              agent.py                │
-│                                      │
-│ • Google Gemini                      │
-│ • LangGraph                          │
-│ • MCPAdapter                         │
-│ • Tool selection                     │
-│ • Human approval routing             │
-│ • Conversation memory                │
-│ • Retry / timeout handling           │
-│ • Streaming                          │
-└──────────────────┬───────────────────┘
-                   │
-                   │ MCP
-                   ▼
-┌──────────────────────────────────────┐
-│           mcp_server.py              │
-│                                      │
-│ Weather                              │
-│ Gmail                                │
-│ Google Calendar                      │
-│ Fetch                                │
-│ Git                                  │
-│ YouTube                              │
-│ PDF RAG                              │
-└───────┬─────────┬─────────┬──────────┘
-        │         │         │
-        ▼         ▼         ▼
-   WeatherAPI   Google    Git / Web /
-                APIs       YouTube
-                              │
-                              │ RAG tools
-                              ▼
-                  ┌─────────────────────┐
-                  │       rag.py        │
-                  │                     │
-                  │ PDF extraction      │
-                  │ Smart chunking      │
-                  │ Local embeddings    │
-                  │ Dense retrieval     │
-                  │ BM25                │
-                  │ RRF                 │
-                  │ MMR                 │
-                  │ SQLite index        │
-                  └─────────────────────┘
+productivity
+developer
+document
+utility
+unsupported
 ```
+
+The Supervisor does not directly execute MCP tools.
 
 ---
 
-# Main Files
+## Productivity Agent
 
-## `app.py`
-
-The Streamlit frontend of the application.
-
-Responsibilities:
-
-- renders the web interface
-- manages light and dark mode
-- displays conversations
-- sends user messages to the agent
-- displays streamed agent responses
-- shows human approval requests
-- manages chat threads
-- uploads PDF documents
-- automatically indexes uploaded PDFs
-- displays indexed documents
-- allows document removal
-- shows connected capabilities and tool activity
-
-In simple terms:
+Handles:
 
 ```text
-app.py = User Interface
+Gmail
+Google Calendar
 ```
 
----
-
-## `agent.py`
-
-The main reasoning and orchestration layer.
-
-Responsibilities:
-
-- initializes Google Gemini
-- connects to the MCP server through `MCPAdapter`
-- discovers MCP tools
-- binds tools to the language model
-- builds the LangGraph workflow
-- decides whether a tool should execute
-- routes protected actions through human approval
-- manages persistent conversation history
-- manages thread IDs
-- streams responses to Streamlit
-- handles Gemini retries and timeouts
-- injects the current date/time for Calendar requests
-- injects the active conversation thread ID for RAG requests
-- enforces tool-grounded behavior
-
-In simple terms:
-
-```text
-agent.py = Brain / Orchestrator
-```
-
----
-
-## `mcp_server.py`
-
-The single MCP server used by the entire project.
-
-All tools are registered in this file.
-
-It connects the agent to:
-
-- WeatherAPI
-- Gmail
-- Google Calendar
-- public websites
-- the local Git repository
-- YouTube
-- the local RAG engine
-
-In simple terms:
-
-```text
-mcp_server.py = Tool Server
-```
-
-The project intentionally uses **one MCP server** rather than creating a separate MCP server for every capability.
-
----
-
-## `rag.py`
-
-The internal PDF Retrieval-Augmented Generation engine.
-
-It is not a separate MCP server.
-
-The MCP RAG tools in `mcp_server.py` call functions inside `rag.py`.
-
-Responsibilities:
-
-- safely stores uploaded PDFs
-- extracts PDF text
-- removes repeated page noise
-- performs page-aware smart chunking
-- generates local embeddings
-- stores document data in SQLite
-- performs semantic retrieval
-- performs BM25 keyword retrieval
-- combines retrieval results using Reciprocal Rank Fusion
-- reranks results using MMR
-- returns document name and page information
-- keeps documents isolated by conversation thread
-- supports multiple PDFs
-
-In simple terms:
-
-```text
-rag.py = PDF Knowledge + Retrieval Engine
-```
-
----
-
-## `__init__.py`
-
-Marks `multi_mcp_agent` as a Python package.
-
-This allows imports such as:
-
-```python
-from multi_mcp_agent.agent import AgentRuntime
-from multi_mcp_agent.rag import search_documents
-```
-
----
-
-# Project Structure
-
-```text
-multi-mcp-agent/
-│
-├── .env
-├── .gitignore
-├── .python-version
-├── README.md
-├── pyproject.toml
-├── uv.lock
-│
-├── .rag/                              # ignored local RAG data
-├── .langgraph_checkpoints.sqlite      # ignored conversation memory
-├── .gmail_token.json                  # ignored Gmail OAuth token
-├── .calendar_token.json               # ignored Calendar OAuth token
-│
-└── src/
-    └── multi_mcp_agent/
-        ├── __init__.py
-        ├── agent.py
-        ├── app.py
-        ├── mcp_server.py
-        └── rag.py
-```
-
-Runtime files containing private data are excluded from Git.
-
----
-
-# Technologies Used
-
-- Python 3.12
-- Streamlit
-- MCP Python SDK
-- LangChain
-- LangGraph
-- Google Gemini
-- Google Gmail API
-- Google Calendar API
-- WeatherAPI.com
-- HTTPX
-- Git
-- yt-dlp
-- PyPDF
-- Sentence Transformers
-- `intfloat/multilingual-e5-small`
-- Rank BM25
-- NumPy
-- SQLite
-- python-dotenv
-- uv
-- MCP Inspector
-
----
-
-# MCP Tools
-
-The unified MCP server currently exposes approximately **24 tools**.
-
-## Weather
-
-```text
-get_current_weather
-get_weather_forecast
-```
-
-### `get_current_weather`
-
-Gets live weather information for a location.
-
-Example request:
-
-```text
-What's the current weather in Kathmandu?
-```
-
-Flow:
-
-```text
-User
- ↓
-Agent
- ↓
-get_current_weather
- ↓
-MCP Server
- ↓
-WeatherAPI
- ↓
-Agent
- ↓
-Final weather response
-```
-
-### `get_weather_forecast`
-
-Gets a short-term forecast.
-
-Example:
-
-```text
-Will I need an umbrella tomorrow in Kathmandu?
-```
-
----
-
-# Gmail
+### Gmail Tools
 
 ```text
 search_emails
 get_email
 create_draft
+send_email
 ```
 
-## `search_emails`
-
-Searches the authenticated Gmail inbox.
-
-Example:
-
-```text
-Show me my 3 most recent emails.
-```
-
-## `get_email`
-
-Retrieves the full content of a selected email.
-
-## `create_draft`
-
-Creates an email draft.
-
-It does **not send email**.
-
-Example:
-
-```text
-Create a draft email to example@example.com.
-```
-
----
-
-# Google Calendar
+### Calendar Tools
 
 ```text
 list_calendar_events
@@ -410,57 +97,11 @@ update_calendar_event
 delete_calendar_event
 ```
 
-The Calendar integration supports natural language dates.
-
-Example:
-
-```text
-Create an event tomorrow at 5 PM called Project Review.
-```
-
-The agent receives the actual current date and timezone at runtime before resolving terms such as:
-
-```text
-today
-tomorrow
-yesterday
-next Monday
-next week
-```
-
-The default timezone is:
-
-```text
-Asia/Kathmandu
-```
-
-unless configured otherwise.
-
 ---
 
-# Fetch
+## Developer Agent
 
-```text
-fetch_url
-```
-
-Retrieves text from a public URL.
-
-Example:
-
-```text
-Summarize https://example.com/article
-```
-
-The Fetch tool includes network safety checks and does not allow requests to private or internal network addresses.
-
----
-
-# Git
-
-The project includes Git tools for the current repository.
-
-Read-only tools:
+Handles Git operations.
 
 ```text
 git_status
@@ -468,60 +109,21 @@ git_log
 git_diff
 git_show
 git_branch
-```
-
-Write / modifying tools:
-
-```text
 git_add
 git_commit
 git_create_branch
 git_checkout
 ```
 
-The modifying Git tools require human approval before execution.
+Read-only operations may execute directly.
 
-Example:
-
-```text
-User
- ↓
-"Stage .gitignore"
- ↓
-Agent selects git_add
- ↓
-Human Approval
- ↓
-Approve
- ↓
-git_add executes
-```
+Git mutations require human approval.
 
 ---
 
-# YouTube
+## Document Agent
 
-```text
-play_youtube_song
-```
-
-Searches YouTube using `yt-dlp` and opens the matching video in the default browser.
-
-Example:
-
-```text
-Play Bohemian Rhapsody on YouTube.
-```
-
-The tool does not download audio or video.
-
----
-
-# PDF RAG
-
-The project includes an advanced local PDF RAG system.
-
-MCP tools:
+Handles uploaded PDFs and document RAG.
 
 ```text
 index_document
@@ -530,55 +132,346 @@ list_documents
 delete_document
 ```
 
-PDF files can be uploaded directly through the Streamlit interface.
+It is responsible for:
 
-Indexing starts automatically after upload.
+- PDF indexing
+- thread-specific document lookup
+- semantic retrieval
+- lexical retrieval
+- page citations
+- grounded PDF answers
 
 ---
 
-# RAG Pipeline
+## Utility Agent
+
+Handles:
 
 ```text
-PDF Upload
-   ↓
-PDF Text Extraction
-   ↓
-Text Cleaning
-   ↓
-Page-Aware Chunking
-   ↓
-Local Embeddings
-   ↓
-SQLite Index
+Weather
+Public URL Fetch
+YouTube
 ```
 
-When the user asks a question:
+Tools:
 
 ```text
-Question
-   │
-   ├── Dense Semantic Retrieval
-   │
-   └── BM25 Keyword Retrieval
-            ↓
-            RRF
-            ↓
-            MMR
-            ↓
-        Best Chunks
-            ↓
-   Filename + Page Number
-            ↓
-          Gemini
-            ↓
-      Grounded Answer
+get_current_weather
+get_weather_forecast
+fetch_url
+play_youtube_song
+```
+
+---
+
+# Unified MCP Server
+
+The application uses one MCP server:
+
+```text
+src/multi_mcp_agent/mcp_server.py
+```
+
+Current MCP tool count:
+
+```text
+Weather             2
+Gmail               4
+Google Calendar     4
+Git                 9
+PDF RAG             4
+Fetch               1
+YouTube             1
+----------------------
+Total              25
+```
+
+No separate MCP server is created for each integration.
+
+---
+
+# Human Approval
+
+Actions that modify local or external state require explicit user approval.
+
+Protected tools:
+
+```text
+send_email
+
+git_add
+git_commit
+git_create_branch
+git_checkout
+
+create_calendar_event
+update_calendar_event
+delete_calendar_event
+
+delete_document
+```
+
+Example:
+
+```text
+User
+ ↓
+Supervisor
+ ↓
+Productivity Agent
+ ↓
+send_email
+ ↓
+Human Approval
+      │
+      ├── Approve
+      │      ↓
+      │   MCP Tool
+      │      ↓
+      │   Gmail API
+      │      ↓
+      │   Email sent
+      │
+      └── Cancel
+             ↓
+        Tool rejected
+             ↓
+       Email not sent
+```
+
+Protected actions cannot silently execute through the chat workflow.
+
+---
+
+# Gmail Integration
+
+Supported Gmail operations:
+
+```text
+search_emails
+get_email
+create_draft
+send_email
+```
+
+## Search
+
+The agent can search email by:
+
+- sender
+- subject
+- recent messages
+- Gmail-compatible queries
+
+## Read
+
+`get_email` retrieves the full content of a selected email.
+
+## Draft
+
+`create_draft` creates a Gmail draft.
+
+Creating a draft does **not** send the email.
+
+## Send
+
+`send_email` sends an email through Gmail.
+
+Sending requires human approval before the MCP tool executes.
+
+Example flow:
+
+```text
+User:
+Send an email to example@example.com
+
+        ↓
+
+Supervisor
+
+        ↓
+
+Productivity Agent
+
+        ↓
+
+send_email
+
+        ↓
+
+Human Approval
+
+        ↓
+
+Approve
+
+        ↓
+
+Gmail API
+
+        ↓
+
+Email sent
+```
+
+OAuth credentials are stored locally in:
+
+```text
+.gmail_token.json
+```
+
+---
+
+# Google Calendar Integration
+
+Supported operations:
+
+```text
+list_calendar_events
+create_calendar_event
+update_calendar_event
+delete_calendar_event
+```
+
+Calendar write operations require human approval.
+
+The application injects the current runtime date and timezone into the agent context.
+
+This allows requests such as:
+
+```text
+Create an event tomorrow at 3 PM.
+```
+
+to be converted into the correct absolute datetime.
+
+Default timezone:
+
+```text
+Asia/Kathmandu
+```
+
+Calendar datetimes use RFC3339 / ISO8601-compatible values.
+
+---
+
+# Weather
+
+Supported tools:
+
+```text
+get_current_weather
+get_weather_forecast
+```
+
+Weather data is retrieved through WeatherAPI.
+
+Example:
+
+```text
+User:
+What's the weather in Kathmandu?
+
+        ↓
+
+Supervisor
+
+        ↓
+
+Utility Agent
+
+        ↓
+
+get_current_weather
+
+        ↓
+
+WeatherAPI
+
+        ↓
+
+Grounded weather response
+```
+
+---
+
+# Public URL Fetch
+
+Tool:
+
+```text
+fetch_url
+```
+
+The Utility Agent can retrieve and summarize public web pages.
+
+Example:
+
+```text
+Fetch https://example.com and summarize the page.
+```
+
+The fetched page content becomes the source of truth for the answer.
+
+---
+
+# YouTube
+
+Tool:
+
+```text
+play_youtube_song
+```
+
+The agent can search for and open requested songs on YouTube.
+
+Example:
+
+```text
+Play Shape of You on YouTube.
+```
+
+The tool opens the result in the browser.
+
+---
+
+# PDF RAG
+
+The application includes a custom local PDF Retrieval-Augmented Generation pipeline.
+
+Architecture:
+
+```text
+PDF
+ ↓
+Page-aware text extraction
+ ↓
+Chunking
+ ↓
+Local Embeddings
+ ↓
+SQLite Storage
+ ↓
+Dense Retrieval
+ +
+BM25
+ ↓
+RRF
+ ↓
+MMR
+ ↓
+Best Chunks
+ ↓
+Gemini
+ ↓
+Grounded Answer
 ```
 
 ---
 
 # Local Embeddings
 
-PDF embeddings are generated locally using:
+Embedding model:
 
 ```text
 intfloat/multilingual-e5-small
@@ -590,285 +483,128 @@ Embedding dimension:
 384
 ```
 
-The project originally experimented with Gemini embeddings, but local embeddings are now used to avoid cloud embedding rate limits and make document indexing more reliable.
+Embeddings are generated locally.
 
 Benefits:
 
 - no embedding API quota
-- local document vector generation
+- local document processing
 - multilingual retrieval
-- better privacy for document indexing
-- predictable indexing behavior
+- better privacy
+- predictable document indexing
 
 ---
 
 # Hybrid Retrieval
 
-The RAG engine combines multiple retrieval techniques.
-
-## Dense Retrieval
-
-Finds semantically similar passages using embedding similarity.
-
-Example:
+The RAG engine combines:
 
 ```text
-Question:
-What problems does Naive RAG have?
-```
-
-Dense retrieval can find related passages even if the exact wording is different.
-
----
-
-## BM25
-
-Provides lexical / keyword search.
-
-This is useful when exact terminology, identifiers, or specific phrases are important.
-
----
-
-## Reciprocal Rank Fusion
-
-Dense and BM25 rankings are combined using:
-
-```text
-RRF
-```
-
-This allows semantic retrieval and keyword retrieval to contribute to the final ranking.
-
----
-
-## MMR
-
-Maximum Marginal Relevance is used to improve result diversity and reduce repetitive chunks.
-
-Final retrieval architecture:
-
-```text
-Dense
+Dense Semantic Retrieval
 +
 BM25
 +
-RRF
+Reciprocal Rank Fusion
 +
-MMR
+Maximum Marginal Relevance
 ```
+
+## Dense Retrieval
+
+Finds semantically related passages.
+
+## BM25
+
+Finds exact keywords, names, identifiers, and terminology.
+
+## RRF
+
+Combines dense and BM25 rankings.
+
+## MMR
+
+Reduces repetitive retrieval results and improves result diversity.
 
 ---
 
 # PDF Grounding
 
-Document questions must be answered from retrieved PDF evidence.
+PDF answers must come from retrieved document evidence.
 
-Example:
-
-```text
-What are the three main RAG paradigms?
-```
-
-Possible result:
-
-```text
-1. Naive RAG
-2. Advanced RAG
-3. Modular RAG
-
-[rag_survey.pdf, page 2]
-```
-
-If sufficient supporting evidence cannot be retrieved, the agent responds with an insufficient-evidence message instead of filling the answer with general model knowledge.
-
-Example:
-
-```text
-I couldn't find sufficient evidence in the uploaded document to answer that.
-```
-
----
-
-# Page Citations
-
-Retrieved document answers include user-facing citations such as:
+Example citation:
 
 ```text
 [rag_survey.pdf, page 3]
 ```
 
-Internal hashed storage filenames are not exposed to the user.
+Example answer:
+
+```text
+Naive RAG performs retrieval before the generation step.
+
+[rag_survey.pdf, page 3]
+```
+
+If sufficient evidence cannot be retrieved, the system returns an insufficient-evidence response rather than inventing PDF content.
 
 ---
 
 # Multiple PDF Support
 
-Multiple PDFs can be indexed in the same conversation.
+Multiple PDFs may exist inside one conversation.
 
 Example:
-
-```text
-rag_survey.pdf
-Troubleshooting SOP.pdf
-```
-
-The user can explicitly select one document:
-
-```text
-Using only rag_survey.pdf, what are the three RAG paradigms?
-```
-
-The agent:
-
-```text
-1. calls list_documents
-2. resolves the requested filename
-3. obtains its document ID
-4. searches only that document
-5. returns evidence only from that PDF
-```
-
-This prevents cross-document retrieval mixing.
-
----
-
-# Thread Isolation
-
-Documents are scoped to conversation threads.
 
 ```text
 Chat A
- ├── document-a.pdf
- └── document-b.pdf
+ ├── rag_survey.pdf
+ └── troubleshooting.pdf
 
 Chat B
- └── document-c.pdf
+ └── architecture.pdf
 ```
 
-A document indexed in Chat A is not automatically treated as part of Chat B.
+Documents are scoped using:
 
-This allows each conversation to maintain its own document workspace.
+```text
+thread_id
+```
+
+A PDF indexed in one conversation is not automatically available in another conversation.
 
 ---
 
-# Follow-Up PDF Questions
+# Explicit Document Selection
 
-Conversation context is preserved.
-
-Example:
+When the user explicitly names a PDF:
 
 ```text
-User:
-What are the three main RAG paradigms?
-
-Agent:
-Naive RAG, Advanced RAG, Modular RAG.
-
-User:
-What are the limitations of the first one?
+Using only rag_survey.pdf, explain Naive RAG.
 ```
 
-The agent understands that:
+The Document Agent:
 
 ```text
-"the first one" = Naive RAG
+list_documents
+      ↓
+resolve filename
+      ↓
+get document_id
+      ↓
+search_documents
+      ↓
+search only selected PDF
+      ↓
+grounded answer
 ```
 
-but still performs a new document search before answering.
+This prevents evidence from different documents from being mixed accidentally.
 
 ---
 
-# Human Approval
+# Conversation Persistence
 
-Protected actions are routed through a LangGraph approval node.
-
-Examples include:
-
-```text
-git_add
-git_commit
-git_create_branch
-git_checkout
-
-create_calendar_event
-update_calendar_event
-delete_calendar_event
-
-delete_document
-```
-
-Workflow:
-
-```text
-User request
-     ↓
-Gemini selects protected tool
-     ↓
-LangGraph detects protected action
-     ↓
-Approval Node
-     ↓
-Streamlit displays action + arguments
-     ↓
-        ┌──────────┴──────────┐
-        │                     │
-     Approve                Cancel
-        │                     │
-        ▼                     ▼
-   Tool executes        Tool rejected
-```
-
-The agent cannot silently execute protected chat actions.
-
----
-
-# LangGraph Workflow
-
-The graph contains three main nodes:
-
-```text
-agent
-approval
-tools
-```
-
-Flow:
-
-```text
-START
-  ↓
-agent
-  ↓
-route_after_agent()
-  │
-  ├── no tool call
-  │      ↓
-  │     END
-  │
-  ├── safe tool
-  │      ↓
-  │    tools
-  │      ↓
-  │    agent
-  │
-  └── protected tool
-         ↓
-      approval
-         ↓
-      approve?
-       /     \
-     yes      no
-      │        │
-    tools    agent
-      │
-    agent
-```
-
----
-
-# Conversation Memory
-
-Conversation history is stored locally using:
+Conversation state is persisted locally using:
 
 ```text
 LangGraph
@@ -890,70 +626,98 @@ Each conversation uses its own:
 thread_id
 ```
 
-This enables:
+This supports:
 
-- persistent chat history
-- switching between conversations
+- saved conversations
+- browser refresh persistence
+- conversation switching
 - follow-up questions
-- human approval resume
-- thread-specific PDF context
+- approval interruption/resume
+- PDF thread isolation
 
 ---
 
-# Tool Selection
+# LangGraph Workflow
 
-Gemini receives:
+High-level graph:
 
 ```text
-User request
-+
-System instructions
-+
-Available MCP tool schemas
-+
-Conversation context
+START
+  │
+  ▼
+Supervisor
+  │
+  ├─────────────┬─────────────┬─────────────┐
+  │             │             │             │
+  ▼             ▼             ▼             ▼
+Productivity Developer    Document       Utility
+  │             │             │             │
+  └─────────────┴──────┬──────┴─────────────┘
+                       │
+                       ▼
+                 Tool requested
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+             ▼                   ▼
+          Safe Tool        Protected Tool
+             │                   │
+             ▼                   ▼
+          ToolNode            Approval
+             │               /        \
+             │          Approve       Reject
+             │             │             │
+             │             ▼             ▼
+             └────────── ToolNode    Specialist
+                           │
+                           ▼
+                      Specialist
+                           │
+                           ▼
+                          END
 ```
 
-The model then decides whether a tool is required.
+---
+
+# Live Agent Activity UI
+
+The Streamlit interface displays the execution path while a request is running.
 
 Example:
 
 ```text
-User:
-What's the weather in Kathmandu?
-
-Gemini:
-→ get_current_weather
+Supervisor
+   ↓
+Developer Agent
+   ↓
+git_status
+   ↓
+Completed
 ```
 
 Another example:
 
 ```text
-User:
-Show my recent emails.
-
-Gemini:
-→ search_emails
+Supervisor
+   ↓
+Productivity Agent
+   ↓
+send_email
+   ↓
+Waiting for approval
 ```
 
-Another example:
+The activity panel is UI telemetry only.
 
-```text
-User:
-What does rag_survey.pdf say about Naive RAG?
-
-Gemini:
-→ list_documents
-→ search_documents
-```
+It does not control routing or tool execution.
 
 ---
 
 # Capability Boundary
 
-The application is intentionally tool-grounded.
+The system is intentionally tool-grounded.
 
-Its supported knowledge sources are:
+Supported information sources:
 
 ```text
 Current conversation
@@ -961,84 +725,257 @@ Uploaded PDF documents
 Weather
 Gmail
 Google Calendar
-Public URL Fetch
 Git
+Public URL Fetch
 YouTube
 ```
 
 The application is not designed as an unrestricted general-purpose chatbot.
 
-Unsupported unrelated general-knowledge or creative-writing requests may be rejected.
+Unsupported requests may return:
 
-This reduces unsupported answers and keeps responses grounded in the capabilities available to the application.
+```text
+That request is outside the connected capabilities of this agent.
+```
 
 ---
 
-# Error Handling
-
-The agent handles common model and tool failures.
-
-Examples include:
+# Project Structure
 
 ```text
-Gemini quota errors
-Gemini service unavailable
-Model timeout
-WeatherAPI errors
-Invalid weather location
-Ambiguous weather location
-Fetch network errors
-OAuth errors
-PDF extraction errors
-RAG indexing errors
+multi-mcp-agent/
+│
+├── README.md
+├── pyproject.toml
+├── uv.lock
+├── .python-version
+├── .gitignore
+│
+└── src/
+    └── multi_mcp_agent/
+        │
+        ├── __init__.py
+        ├── app.py
+        ├── agent.py
+        ├── mcp_server.py
+        ├── rag.py
+        │
+        ├── agents/
+        │   ├── __init__.py
+        │   ├── base.py
+        │   ├── toolsets.py
+        │   ├── supervisor.py
+        │   ├── productivity.py
+        │   ├── developer.py
+        │   ├── document.py
+        │   ├── utility.py
+        │   └── registry.py
+        │
+        ├── core/
+        │   ├── __init__.py
+        │   ├── config.py
+        │   ├── state.py
+        │   ├── persistence.py
+        │   └── model.py
+        │
+        └── graph/
+            ├── __init__.py
+            ├── approval.py
+            ├── routing.py
+            ├── nodes.py
+            └── builder.py
 ```
 
-Model requests include retry handling for transient failures.
+---
 
-Current model timeout:
+# File Responsibilities
+
+## `app.py`
+
+Streamlit frontend.
+
+Responsible for:
 
 ```text
-35 seconds
+Chat interface
+Sidebar
+Conversation history
+PDF uploads
+Light / dark mode
+Human approval controls
+Live agent activity panel
+Streaming responses
 ```
 
-Maximum full agent turn timeout:
+---
+
+## `agent.py`
+
+Application-facing runtime facade.
+
+Responsible for:
 
 ```text
-90 seconds
+MCP adapter lifecycle
+Agent registry initialization
+LangGraph initialization
+Runtime public API
+Graph streaming
+Approval resume
+UI telemetry events
 ```
+
+---
+
+## `agents/`
+
+Contains the multi-agent layer.
+
+```text
+supervisor.py
+    → request classification and routing
+
+productivity.py
+    → Gmail + Calendar
+
+developer.py
+    → Git
+
+document.py
+    → PDF RAG
+
+utility.py
+    → Weather + Fetch + YouTube
+
+toolsets.py
+    → specialist tool boundaries
+
+registry.py
+    → builds the complete agent registry
+
+base.py
+    → shared specialist-agent construction
+```
+
+---
+
+## `core/`
+
+Shared infrastructure.
+
+```text
+config.py
+    → configuration and paths
+
+state.py
+    → MultiAgentState
+
+persistence.py
+    → AsyncSqliteSaver + thread configuration
+
+model.py
+    → model retry, timeout, transient-error handling
+```
+
+---
+
+## `graph/`
+
+LangGraph orchestration.
+
+```text
+builder.py
+    → builds the multi-agent graph
+
+nodes.py
+    → supervisor and specialist nodes
+
+routing.py
+    → graph routing decisions
+
+approval.py
+    → protected tool detection and human approval
+```
+
+---
+
+## `mcp_server.py`
+
+Single unified MCP execution layer.
+
+Contains tools for:
+
+```text
+Weather
+Gmail
+Google Calendar
+Git
+Public URL Fetch
+YouTube
+PDF RAG
+```
+
+---
+
+## `rag.py`
+
+Local PDF retrieval engine.
+
+Responsible for:
+
+```text
+PDF extraction
+Page-aware chunking
+Local embeddings
+SQLite document storage
+Dense search
+BM25
+RRF
+MMR
+Page citations
+```
+
+---
+
+# Model
+
+Default model:
+
+```text
+gemini-3.5-flash-lite
+```
+
+The model layer also includes:
+
+- request timeout handling
+- transient error detection
+- retry handling
+- rate-limit handling
 
 ---
 
 # Security
 
-Sensitive configuration is not hard-coded.
+Secrets are not hard-coded.
 
-The project uses:
+Local credentials:
 
 ```text
 .env
-```
-
-for API credentials.
-
-Local OAuth tokens are stored in:
-
-```text
 .gmail_token.json
 .calendar_token.json
 ```
 
-These files are ignored by Git.
-
-Uploaded PDFs and local RAG indexes are stored under:
+Local runtime data:
 
 ```text
+.langgraph_checkpoints.sqlite
 .rag/
 ```
 
-and are also ignored by Git.
+These files are ignored by Git.
 
-Persistent conversation data is stored locally and ignored by Git.
+Protected write operations require explicit human approval.
 
 ---
 
@@ -1059,66 +996,20 @@ GMAIL_OAUTH_CLIENT_SECRET=your_google_oauth_client_secret
 CALENDAR_TIMEZONE=Asia/Kathmandu
 ```
 
-Do not commit `.env`.
-
----
-
-# `.gitignore`
-
-The project ignores local credentials, private documents, generated databases, environments, and temporary files.
-
-Important entries include:
-
-```gitignore
-# Python cache / build
-__pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
-wheels/
-.pytest_cache/
-.ruff_cache/
-
-# Virtual environment
-.venv/
-
-# Secrets / local credentials
-.env
-.gmail_token.json
-.calendar_token.json
-
-# LangGraph local persistence
-.langgraph_checkpoints.sqlite
-.langgraph_checkpoints.sqlite-shm
-.langgraph_checkpoints.sqlite-wal
-
-# Local RAG data
-.rag/
-
-# Local editor / OS files
-.vscode/
-.DS_Store
-
-# Temporary backups
-*.bak
-*.prompt-backup
-```
+Never commit `.env`.
 
 ---
 
 # Installation
 
-## 1. Clone the repository
+## Clone Repository
 
 ```bash
 git clone <repository-url>
 cd multi-mcp-agent
 ```
 
----
-
-## 2. Install dependencies
+## Install Dependencies
 
 The project uses `uv`.
 
@@ -1126,11 +1017,7 @@ The project uses `uv`.
 uv sync
 ```
 
----
-
-## 3. Activate the environment
-
-On macOS/Linux:
+Optional environment activation:
 
 ```bash
 source .venv/bin/activate
@@ -1138,31 +1025,17 @@ source .venv/bin/activate
 
 ---
 
-## 4. Configure `.env`
+# Run Application
 
-Create:
-
-```text
-.env
-```
-
-and add the required credentials.
-
----
-
-# Run the Application
-
-Start the Streamlit application:
+Start Streamlit:
 
 ```bash
 uv run streamlit run src/multi_mcp_agent/app.py
 ```
 
-Then open the local Streamlit URL in the browser.
-
 ---
 
-# Test the MCP Server
+# MCP Inspector
 
 Run MCP Inspector:
 
@@ -1170,404 +1043,164 @@ Run MCP Inspector:
 uv run mcp dev src/multi_mcp_agent/mcp_server.py
 ```
 
-The server should expose the multi-capability MCP tools.
+Run the MCP server directly:
 
-Current groups:
+```bash
+uv run mcp run src/multi_mcp_agent/mcp_server.py
+```
+
+---
+
+# Validation
+
+Compile the source:
+
+```bash
+uv run python -m compileall -q src/multi_mcp_agent
+```
+
+Lint unused imports and undefined names:
+
+```bash
+uvx ruff check src/multi_mcp_agent --select F401,F821
+```
+
+Check Git diff formatting:
+
+```bash
+git diff --check
+```
+
+---
+
+# Verified Smoke Tests
+
+Current architecture has been tested for:
 
 ```text
 Weather
-Gmail
-Google Calendar
+✓ Current weather
+
 Fetch
-Git
+✓ Public URL fetch
+
 YouTube
-RAG
-```
-
----
-
-# Syntax Check
-
-Before running the project, the main source files can be checked with:
-
-```bash
-uv run python -m py_compile \
-  src/multi_mcp_agent/agent.py \
-  src/multi_mcp_agent/app.py \
-  src/multi_mcp_agent/mcp_server.py \
-  src/multi_mcp_agent/rag.py
-```
-
-No output means the files compiled successfully.
-
----
-
-# Example: Weather Flow
-
-```text
-User:
-What's the current weather in Kathmandu?
-
-        ↓
-
-app.py
-
-        ↓
-
-agent.py
-
-        ↓
-
-Gemini decides:
-get_current_weather
-
-        ↓
-
-LangGraph
-
-        ↓
-
-MCPAdapter
-
-        ↓
-
-mcp_server.py
-
-        ↓
-
-WeatherAPI
-
-        ↓
-
-Weather result
-
-        ↓
-
-agent.py
-
-        ↓
-
-Gemini final response
-
-        ↓
-
-app.py
-
-        ↓
-
-User
-```
-
----
-
-# Example: PDF Flow
-
-## Indexing
-
-```text
-User uploads PDF
-       ↓
-app.py
-       ↓
-save_uploaded_file()
-       ↓
-.rag/uploads/
-       ↓
-index_document MCP tool
-       ↓
-mcp_server.py
-       ↓
-rag.py
-       ↓
-PDF extraction
-       ↓
-Smart chunking
-       ↓
-Local embeddings
-       ↓
-SQLite RAG index
-```
-
-## Question Answering
-
-```text
-User asks PDF question
-       ↓
-app.py
-       ↓
-agent.py
-       ↓
-Gemini selects search_documents
-       ↓
-mcp_server.py
-       ↓
-rag.py
-       ↓
-Dense + BM25
-       ↓
-RRF
-       ↓
-MMR
-       ↓
-Relevant chunks + pages
-       ↓
-agent.py
-       ↓
-Grounded final answer
-       ↓
-[filename.pdf, page N]
-```
-
----
-
-# Example: Calendar Write Flow
-
-```text
-User:
-Create an event tomorrow at 5 PM.
-
-        ↓
-
-agent.py
-
-        ↓
-
-Current date/time injected
-
-        ↓
-
-Gemini resolves actual date
-
-        ↓
-
-create_calendar_event
-
-        ↓
-
-Protected action detected
-
-        ↓
-
-Human Approval
-
-        ↓
-
-User approves
-
-        ↓
-
-mcp_server.py
-
-        ↓
-
-Google Calendar API
-
-        ↓
-
-Event created
-
-        ↓
-
-Final confirmation
-```
-
----
-
-# Streamlit Interface
-
-The current UI includes:
-
-- responsive web layout
-- light mode
-- dark mode
-- new chat
-- saved conversations
-- PDF uploader
-- automatic PDF indexing
-- multiple document support
-- indexed document metadata
-- document removal
-- capability cards
-- AI thinking state
-- streamed responses
-- tool usage information
-- human approval controls
-
----
-
-# Current Capabilities
-
-```text
-🌤 Weather
-✉ Gmail
-📅 Google Calendar
-📄 PDF RAG
-🌐 Fetch
-⑂ Git
-▶ YouTube
-🧠 Persistent Memory
-```
-
----
-
-# Current Project Status
-
-## Completed
-
-```text
-✓ Single unified MCP server
-✓ Streamlit web interface
-✓ Light / dark mode
-✓ Google Gemini integration
-✓ LangGraph agent workflow
-✓ MCPAdapter integration
-✓ Automatic tool selection
-✓ Streaming responses
-✓ Persistent chat history
-✓ Multiple conversation threads
-✓ Human approval workflow
-
-✓ Weather current conditions
-✓ Weather forecasting
-✓ Weather location resolution
-✓ Gmail search
-✓ Gmail message retrieval
-✓ Gmail draft creation
-✓ Google Calendar listing
-✓ Calendar event creation
-✓ Calendar event update
-✓ Calendar event deletion
-✓ Runtime-aware relative date handling
-✓ Public URL fetching
-✓ Network safety validation
-✓ Git read tools
-✓ Git write tools with approval
-✓ YouTube search / browser opening
-
+✓ Song opening
+
+Git
+✓ git_status
+✓ git_branch
+✓ git_log
+✓ git_diff
+✓ protected action rejection
+
+Gmail
+✓ email search
+✓ full email retrieval
+✓ draft creation
+✓ send-email rejection
+✓ approved email sending
+
+Calendar
+✓ event listing
+✓ protected create rejection
+
+PDF RAG
 ✓ PDF upload
-✓ Automatic PDF indexing
-✓ Multiple PDF support
-✓ Thread-scoped documents
-✓ Local multilingual embeddings
-✓ Dense semantic retrieval
-✓ BM25 retrieval
-✓ Reciprocal Rank Fusion
-✓ MMR reranking
-✓ Page-aware chunks
-✓ Source/page citations
-✓ Explicit per-document retrieval
-✓ Follow-up PDF questions
-✓ Insufficient-evidence guard
-✓ General capability boundary
+✓ automatic indexing
+✓ document listing
+✓ semantic search
+✓ page citations
+✓ multi-document support
 
-✓ Local secrets ignored by Git
-✓ Local RAG data ignored by Git
-✓ Persistent LangGraph SQLite memory
-✓ Retry and timeout handling
+Routing
+✓ Supervisor routing
+✓ unsupported request handling
+
+Persistence
+✓ saved conversation
+✓ browser refresh
+✓ follow-up context
+✓ thread persistence
+
+UI
+✓ light mode
+✓ dark mode
+✓ conversation history
+✓ delete chat
+✓ live execution activity
+✓ approval UI
 ```
 
 ---
 
 # Known Limitations
 
-The current project intentionally has several limitations:
-
-- Gemini API response latency can vary
-- the first local embedding model load may take longer because the model must be downloaded
-- scanned/image-only PDFs do not yet have an OCR pipeline
-- Gmail supports draft creation but not automatic sending
-- Fetch supports public URLs only
-- YouTube functionality opens the browser rather than controlling media playback internally
-- RAG indexes are local to the machine
-- the project is primarily designed for local learning and portfolio demonstration
-- protected actions depend on the human approval flow
-- the system is intentionally not an unrestricted general-purpose chatbot
+- Gemini API availability, latency, and quota may vary.
+- The first local embedding-model load may take longer.
+- Scanned or image-only PDFs do not currently have OCR.
+- Fetch is intended for public URLs.
+- YouTube opens the browser instead of controlling playback internally.
+- RAG indexes are local to the machine.
+- Conversation persistence is local to the machine.
+- The project is primarily designed for learning and portfolio demonstration.
+- The system intentionally does not act as an unrestricted general-purpose chatbot.
 
 ---
 
 # Key Learning Outcomes
 
-This project demonstrates how to build a real tool-calling AI system where:
+This project demonstrates:
 
 ```text
-LLM
- ≠ direct API access
+Model Context Protocol
+Multi-agent architecture
+Supervisor routing
+Specialist tool isolation
+LangGraph orchestration
+LangChain MCP integration
+Tool calling
+Human-in-the-loop approval
+Persistent graph state
+OAuth integration
+Gmail automation
+Calendar automation
+Git automation
+Weather API integration
+Local PDF RAG
+Local embeddings
+Hybrid retrieval
+Multi-document retrieval
+Source-grounded answers
+Streamlit agent observability
 ```
-
-Instead:
-
-```text
-LLM
- ↓
-Agent
- ↓
-MCP
- ↓
-Controlled Tools
- ↓
-External Systems
-```
-
-It demonstrates:
-
-- MCP tool design
-- one-server multi-tool architecture
-- LangChain MCP integration
-- LangGraph orchestration
-- LLM tool selection
-- human-in-the-loop approval
-- persistent conversation state
-- OAuth-based integrations
-- API safety
-- local Git automation
-- local hybrid RAG
-- multi-document retrieval
-- source-grounded answers
-- Streamlit agent UI design
 
 ---
 
-# File Responsibilities — Quick Explanation
-
-For demonstrations or presentations:
-
-```text
-app.py
-= Frontend / UI
-
-agent.py
-= Brain / Orchestration
-
-mcp_server.py
-= All MCP Tools / Execution Layer
-
-rag.py
-= PDF Indexing + Retrieval Engine
-
-__init__.py
-= Python Package Setup
-```
-
-Complete connection:
+# Execution Model
 
 ```text
 User
  ↓
-app.py
+Streamlit UI
  ↓
-agent.py
+AgentRuntime
  ↓
-MCP
+Supervisor
  ↓
-mcp_server.py
+Specialist Agent
  ↓
-External APIs / Git / YouTube / rag.py
+LangGraph
  ↓
-Result
+MCP Tool
  ↓
-agent.py
+External API / Local System
  ↓
-app.py
+Tool Result
+ ↓
+Specialist Agent
+ ↓
+Streamlit UI
  ↓
 User
 ```
@@ -1576,20 +1209,24 @@ User
 
 # Summary
 
-`Multi MCP Agent` evolved from a basic weather MCP learning project into a multi-capability agentic application.
+`Multi MCP Agent` evolved from a basic weather MCP learning project into a modular multi-agent system.
 
-The final architecture separates concerns clearly:
+The final architecture separates:
 
 ```text
 UI
 ↓
-Agent Orchestration
+Runtime
+↓
+Supervisor
+↓
+Specialist Agents
+↓
+LangGraph
 ↓
 MCP
 ↓
-Tool Execution
-↓
-External Services / Local RAG
+External Services / Local Systems
 ```
 
-This keeps the project modular, understandable, safer, and easier to extend with additional MCP capabilities in the future.
+This keeps the project easier to understand, safer to operate, and easier to extend with additional MCP capabilities without turning the system into one large monolithic agent.

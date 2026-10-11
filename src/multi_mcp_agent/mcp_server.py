@@ -890,6 +890,75 @@ def create_draft(
     }
 
 
+
+@mcp.tool()
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+) -> dict:
+    """
+    Send an email through Gmail.
+    """
+
+    if not to.strip():
+        return {
+            "error": "Recipient email address is required",
+        }
+
+    if not subject.strip():
+        return {
+            "error": "Subject is required",
+        }
+
+    if not body.strip():
+        return {
+            "error": "Email body is required",
+        }
+
+    message = EmailMessage()
+
+    message["To"] = to.strip()
+    message["Subject"] = subject.strip()
+
+    if cc.strip():
+        message["Cc"] = cc.strip()
+
+    if bcc.strip():
+        message["Bcc"] = bcc.strip()
+
+    message.set_content(body)
+
+    encoded_message = base64.urlsafe_b64encode(
+        message.as_bytes()
+    ).decode("utf-8")
+
+    service = get_gmail_service()
+
+    sent_message = (
+        service.users()
+        .messages()
+        .send(
+            userId="me",
+            body={
+                "raw": encoded_message,
+            },
+        )
+        .execute()
+    )
+
+    return {
+        "success": True,
+        "message": "Email sent successfully",
+        "message_id": sent_message.get("id"),
+        "thread_id": sent_message.get("threadId"),
+        "to": to.strip(),
+        "subject": subject.strip(),
+    }
+
+
 # =========================================================
 
 # FETCH HELPERS

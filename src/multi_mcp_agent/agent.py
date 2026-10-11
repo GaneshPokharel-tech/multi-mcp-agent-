@@ -10,13 +10,10 @@ import threading
 
 from pathlib import Path
 
-from typing import Annotated
 
 import os
 
-from datetime import datetime
 
-from zoneinfo import ZoneInfo
 
 
 from dotenv import load_dotenv
@@ -26,9 +23,7 @@ from langchain.mcp import MCPAdapter
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
-    AnyMessage,
     HumanMessage,
-    SystemMessage,
     ToolMessage,
 )
 
@@ -36,17 +31,17 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from langchain_google_genai.chat_models import GoogleRateLimitError
 
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from langgraph.graph import END, START, StateGraph
 
-from langgraph.graph.message import add_messages
 
-from langgraph.prebuilt import ToolNode
 
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
 
-from typing_extensions import TypedDict
+
+
+from multi_mcp_agent.agents.registry import create_agent_registry
+from multi_mcp_agent.core.persistence import create_checkpointer_context
+from multi_mcp_agent.graph.builder import build_multi_agent_graph
 
 # =========================================================
 
@@ -98,208 +93,6 @@ DEFAULT_TIMEZONE = os.getenv(
     "CALENDAR_TIMEZONE",
     "Asia/Kathmandu",
 )
-
-
-# =========================================================
-
-# Tools Requiring Human Approval
-
-# =========================================================
-
-
-APPROVAL_REQUIRED_TOOLS = {
-    "git_add",
-    "git_commit",
-    "git_create_branch",
-    "git_checkout",
-    "create_calendar_event",
-    "update_calendar_event",
-    "delete_calendar_event",
-    "delete_document",
-}
-
-
-# =========================================================
-
-# LangGraph State
-
-# =========================================================
-
-
-class AgentState(TypedDict, total=False):
-
-    messages: Annotated[
-        list[AnyMessage],
-        add_messages,
-    ]
-
-    thread_id: str
-
-
-# =========================================================
-
-# System Prompt
-
-# =========================================================
-
-
-SYSTEM_PROMPT = """
-You are the agent for Multi MCP Agent.
-
-You are tool-grounded, not a general-purpose chatbot.
-Use only the current conversation, retrieved PDF evidence, or the
-connected MCP capabilities. Never invent tool results, document
-content, repository state, emails, events, URLs, weather, or citations.
-
-CAPABILITIES
-
-WEATHER
-Tools:
-- get_current_weather
-- get_weather_forecast
-
-Use Weather tools for current conditions and forecasts.
-Never invent weather data.
-
-GMAIL
-Tools:
-- search_emails
-- get_email
-- create_draft
-
-Use Gmail only for explicit email requests.
-Search/read before answering about email content.
-Never invent emails.
-Creating a draft is allowed; never claim success unless the tool succeeds.
-
-FETCH
-Tool:
-- fetch_url
-
-Use it when the user explicitly asks to inspect or summarize a public URL.
-Treat fetched content as the source of truth.
-
-GIT
-Tools:
-- git_status
-- git_log
-- git_diff
-- git_show
-- git_branch
-- git_add
-- git_commit
-- git_create_branch
-- git_checkout
-
-Read-only Git operations may run directly.
-Mutating Git actions require human approval:
-git_add, git_commit, git_create_branch, git_checkout.
-
-Never call git_add and git_commit in the same model turn.
-Never invent repository state.
-If an action is rejected, do not retry unless explicitly requested.
-
-GOOGLE CALENDAR
-Tools:
-- list_calendar_events
-- create_calendar_event
-- update_calendar_event
-- delete_calendar_event
-
-Use the supplied CURRENT DATE, TIME, and TIMEZONE as authoritative.
-Resolve relative dates from that runtime context.
-Use RFC3339/ISO8601 datetimes with timezone offsets.
-
-Calendar reads may run directly.
-Create, update, and delete require human approval.
-Never invent events or claim success unless the tool succeeds.
-
-YOUTUBE
-Tool:
-- play_youtube_song
-
-Use only when the user asks to play, open, or search for a song.
-Never claim the browser opened unless the tool succeeds.
-
-DOCUMENT RAG
-Tools:
-- index_document
-- search_documents
-- list_documents
-- delete_document
-
-Uploaded PDFs are scoped to the current conversation thread.
-Always use the exact CURRENT THREAD ID supplied at runtime.
-
-For questions about uploaded documents:
-- call search_documents before answering;
-- use retrieved evidence as the source of truth;
-- search again for follow-up questions;
-- cite evidence as [filename, page N];
-- never fill evidence gaps using pretrained knowledge;
-- never invent filenames, page numbers, quotations, or content.
-
-If evidence is insufficient, say:
-"I couldn't find sufficient evidence in the uploaded document to answer that."
-
-Do not claim information is absent from an entire PDF merely because
-retrieval did not return it.
-
-DOCUMENT INVENTORY
-If the user asks which PDFs are indexed, listed, uploaded, or how many
-documents exist, MUST call list_documents in that turn.
-Return every document reported for the current thread.
-Do not expose internal document_id values unless explicitly requested.
-
-EXPLICIT PDF SELECTION
-If the user names a PDF:
-1. call list_documents in the same turn;
-2. resolve the exact filename to its document_id;
-3. call search_documents with only that document_id.
-
-Do not search other PDFs for an explicitly named document.
-If the filename is not indexed, say so and do not guess.
-
-If multiple PDFs exist and "the uploaded PDF" is ambiguous, use
-list_documents and ask which one the user means.
-
-index_document is normally triggered by the upload UI.
-Do not invent file paths.
-delete_document requires human approval when requested through chat.
-
-CONVERSATION MEMORY
-Use the current conversation for user-provided context and follow-ups.
-Do not search Gmail or unrelated tools merely to answer conversational
-memory questions.
-If the information is not present, do not guess.
-
-CAPABILITY BOUNDARY
-Allowed sources are:
-- current conversation;
-- uploaded PDF evidence;
-- Weather;
-- Gmail;
-- Google Calendar;
-- Fetch;
-- Git;
-- YouTube.
-
-Do not answer unrelated general-knowledge questions from pretrained
-knowledge.
-Do not generate fictional stories, poems, invented scenarios, or
-unsupported creative content.
-
-If a request is outside these capabilities, respond briefly:
-"That request is outside the connected capabilities of this agent."
-
-GENERAL
-Use only tools relevant to the request.
-Do not call unrelated tools.
-When multiple tools are needed, use them in the correct order.
-Use tool results as authoritative.
-Keep answers concise unless the user asks for detail.
-"""
-
 
 
 # =========================================================
@@ -550,324 +343,6 @@ def get_mcp_config():
 
 # =========================================================
 
-# Model Retry
-
-# =========================================================
-
-
-async def invoke_model_with_retry(
-    model_with_tools,
-    messages,
-):
-
-    last_error = None
-
-    for attempt in range(MODEL_MAX_ATTEMPTS):
-
-        try:
-
-            return await asyncio.wait_for(
-                model_with_tools.ainvoke(messages),
-                timeout=MODEL_TIMEOUT_SECONDS,
-            )
-
-        except GoogleRateLimitError:
-
-            raise
-
-        except asyncio.TimeoutError as exc:
-
-            last_error = exc
-
-        except Exception as exc:
-
-            if not is_transient_error(exc):
-
-                raise
-
-            last_error = exc
-
-        if attempt < MODEL_MAX_ATTEMPTS - 1:
-
-            delay = RETRY_BASE_DELAY * (2**attempt)
-
-            await asyncio.sleep(delay)
-
-    if last_error:
-
-        raise last_error
-
-    raise RuntimeError("Model request failed.")
-
-
-# =========================================================
-
-# Graph Helpers
-
-# =========================================================
-
-
-def get_tool_calls(
-    state: AgentState,
-) -> list[dict]:
-
-    if not state["messages"]:
-
-        return []
-
-    last_message = state["messages"][-1]
-
-    return (
-        getattr(
-            last_message,
-            "tool_calls",
-            None,
-        )
-        or []
-    )
-
-
-def route_after_agent(
-    state: AgentState,
-):
-    """
-
-    Decide whether to:
-
-    - finish
-
-    - execute safe tools
-
-    - ask human approval
-
-    """
-
-    tool_calls = get_tool_calls(state)
-
-    if not tool_calls:
-
-        return END
-
-    requires_approval = any(
-        tool_call.get("name") in APPROVAL_REQUIRED_TOOLS for tool_call in tool_calls
-    )
-
-    if requires_approval:
-
-        return "approval"
-
-    return "tools"
-
-
-# =========================================================
-
-# Build LangGraph
-
-# =========================================================
-
-
-def build_graph(
-    tools,
-    model_with_tools,
-    checkpointer,
-):
-
-    # -----------------------------------------------------
-
-    # Agent Node
-
-    # -----------------------------------------------------
-
-    async def agent_node(
-        state: AgentState,
-    ):
-        current_datetime = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
-
-        current_thread_id = state.get(
-            "thread_id",
-            "",
-        )
-
-        current_context = f"""
-
-CURRENT DATE AND TIME
-
-Current datetime: {current_datetime.isoformat()}
-Current date: {current_datetime.date().isoformat()}
-Current timezone: {DEFAULT_TIMEZONE}
-
-IMPORTANT CALENDAR RULES:
-- The date and time above are authoritative.
-- Resolve "today" from Current date.
-- Resolve "tomorrow" as exactly one calendar day after Current date.
-- Resolve "yesterday" as exactly one calendar day before Current date.
-- Resolve "next Monday", "next week", and similar expressions
-  relative to Current date.
-- Never use an internal or remembered model date for calendar operations.
-- Before creating or updating a Calendar event, verify that the
-  generated date matches the user's relative-date request.
-
-CURRENT CONVERSATION THREAD
-
-Current thread ID: {current_thread_id}
-
-IMPORTANT RAG RULE:
-- Use exactly the Current thread ID above as the thread_id argument
-  for list_documents, search_documents, and delete_document.
-"""
-
-        messages = [
-            SystemMessage(content=(SYSTEM_PROMPT + current_context)),
-            *state["messages"],
-        ]
-
-        response = await invoke_model_with_retry(
-            model_with_tools,
-            messages,
-        )
-
-        return {"messages": [response]}
-
-    # -----------------------------------------------------
-
-    # Human Approval Node
-
-    # -----------------------------------------------------
-
-    def approval_node(
-        state: AgentState,
-    ):
-
-        tool_calls = get_tool_calls(state)
-
-        protected_calls = [
-            {
-                "name": tool_call.get("name"),
-                "args": tool_call.get(
-                    "args",
-                    {},
-                ),
-                "id": tool_call.get("id"),
-            }
-            for tool_call in tool_calls
-            if (tool_call.get("name") in APPROVAL_REQUIRED_TOOLS)
-        ]
-
-        decision = interrupt(
-            {
-                "type": "tool_approval",
-                "title": ("Human approval required"),
-                "message": (
-                    "The agent wants to perform "
-                    "a protected action that can modify data. "
-                    "Review the tool and arguments carefully "
-                    "before approving."
-                ),
-                "tool_calls": protected_calls,
-            }
-        )
-
-        action = ""
-
-        if isinstance(
-            decision,
-            dict,
-        ):
-
-            action = decision.get(
-                "action",
-                "",
-            ).lower()
-
-        # ---------------------------------------------
-
-        # Approved
-
-        # ---------------------------------------------
-
-        if action == "approve":
-
-            return Command(goto="tools")
-
-        # ---------------------------------------------
-
-        # Rejected
-
-        # ---------------------------------------------
-
-        denied_messages = []
-
-        for tool_call in tool_calls:
-
-            denied_messages.append(
-                ToolMessage(
-                    content=(
-                        "The user rejected this "
-                        "tool action. Do not execute "
-                        "or retry it unless the user "
-                        "explicitly asks again."
-                    ),
-                    tool_call_id=(tool_call.get("id")),
-                    name=(tool_call.get("name")),
-                )
-            )
-
-        return Command(
-            goto="agent",
-            update={"messages": (denied_messages)},
-        )
-
-    # -----------------------------------------------------
-
-    # Tool Node
-
-    # -----------------------------------------------------
-
-    tool_node = ToolNode(tools)
-
-    # -----------------------------------------------------
-
-    # Graph
-
-    # -----------------------------------------------------
-
-    builder = StateGraph(AgentState)
-
-    builder.add_node(
-        "agent",
-        agent_node,
-    )
-
-    builder.add_node(
-        "approval",
-        approval_node,
-    )
-
-    builder.add_node(
-        "tools",
-        tool_node,
-    )
-
-    builder.add_edge(
-        START,
-        "agent",
-    )
-
-    builder.add_conditional_edges(
-        "agent",
-        route_after_agent,
-    )
-
-    builder.add_edge(
-        "tools",
-        "agent",
-    )
-
-    return builder.compile(checkpointer=checkpointer)
-
-
-# =========================================================
-
 # Agent Runtime
 
 # =========================================================
@@ -914,36 +389,39 @@ class AgentRuntime:
     async def _initialize(self):
 
         # MCP
-
-        self.adapter = MCPAdapter(get_mcp_config())
+        self.adapter = MCPAdapter(
+            get_mcp_config()
+        )
 
         await self.adapter.__aenter__()
 
         self.tools = await self.adapter.list_tools()
 
         # Gemini
-
         self.model = ChatGoogleGenerativeAI(
             model=MODEL_NAME,
-            temperature=0,
         )
 
-        self.model_with_tools = self.model.bind_tools(self.tools)
-
-        # SQLite
-
-        self.checkpointer_context = AsyncSqliteSaver.from_conn_string(
-            str(CHECKPOINT_DB)
+        # Multi-agent registry
+        self.registry = create_agent_registry(
+            model=self.model,
+            all_tools=self.tools,
         )
 
-        self.checkpointer = await self.checkpointer_context.__aenter__()
+        # Persistent SQLite checkpointer
+        self.checkpointer_context = (
+            create_checkpointer_context()
+        )
 
-        # Graph
+        self.checkpointer = await (
+            self.checkpointer_context.__aenter__()
+        )
 
-        self.graph = build_graph(
-            self.tools,
-            self.model_with_tools,
-            self.checkpointer,
+        # Multi-agent LangGraph
+        self.graph = build_multi_agent_graph(
+            registry=self.registry,
+            all_tools=self.tools,
+            checkpointer=self.checkpointer,
         )
 
     # -----------------------------------------------------
@@ -1394,6 +872,98 @@ class AgentRuntime:
 
             # -----------------------------------------
 
+            # UI-only execution telemetry.
+            # These events do not affect graph routing,
+            # state, persistence, or tool execution.
+            announced_agent = None
+            started_tools = set()
+            completed_tools = set()
+
+            if isinstance(graph_input, Command):
+                pending_before_resume = await self._get_pending_approval(
+                    thread_id
+                )
+
+                resume_value = getattr(
+                    graph_input,
+                    "resume",
+                    None,
+                )
+
+                resume_action = (
+                    str(resume_value.get("action", "")).lower()
+                    if isinstance(resume_value, dict)
+                    else ""
+                )
+
+                event_queue.put(
+                    {
+                        "type": "activity",
+                        "stage": "approval_resume",
+                        "action": resume_action,
+                        "label": (
+                            "Resuming approved action"
+                            if resume_action == "approve"
+                            else "Applying rejected action"
+                        ),
+                    }
+                )
+
+                # When approval is granted, the original
+                # protected tool call already exists in the
+                # persisted graph state. Expose it to the UI
+                # before ToolNode resumes execution.
+                if (
+                    resume_action == "approve"
+                    and isinstance(
+                        pending_before_resume,
+                        dict,
+                    )
+                ):
+                    pending_agent = (
+                        pending_before_resume.get("agent")
+                    )
+
+                    if pending_agent:
+                        announced_agent = pending_agent
+
+                        event_queue.put(
+                            {
+                                "type": "agent",
+                                "agent": pending_agent,
+                            }
+                        )
+
+                    for tool_call in (
+                        pending_before_resume.get(
+                            "tool_calls",
+                            [],
+                        )
+                    ):
+                        tool_name = tool_call.get("name")
+
+                        if not tool_name:
+                            continue
+
+                        started_tools.add(tool_name)
+
+                        event_queue.put(
+                            {
+                                "type": "tool_start",
+                                "tool": tool_name,
+                                "agent": pending_agent,
+                            }
+                        )
+
+            else:
+                event_queue.put(
+                    {
+                        "type": "activity",
+                        "stage": "routing",
+                        "label": "Supervisor routing request",
+                    }
+                )
+
             async with asyncio.timeout(TURN_TIMEOUT_SECONDS):
 
                 async for (
@@ -1405,6 +975,41 @@ class AgentRuntime:
                     stream_mode="messages",
                 ):
 
+                    node_name = metadata.get(
+                        "langgraph_node",
+                        "",
+                    )
+
+                    # ---------------------------------
+                    # Tool completion telemetry
+                    # ---------------------------------
+
+                    if isinstance(
+                        message_chunk,
+                        ToolMessage,
+                    ):
+                        tool_name = getattr(
+                            message_chunk,
+                            "name",
+                            None,
+                        )
+
+                        if (
+                            tool_name
+                            and tool_name
+                            not in completed_tools
+                        ):
+                            completed_tools.add(tool_name)
+
+                            event_queue.put(
+                                {
+                                    "type": "tool_done",
+                                    "tool": tool_name,
+                                }
+                            )
+
+                        continue
+
                     if not isinstance(
                         message_chunk,
                         AIMessageChunk,
@@ -1412,7 +1017,87 @@ class AgentRuntime:
 
                         continue
 
-                    text = message_to_text(message_chunk.content)
+                    # Hide internal supervisor output.
+                    if node_name not in {
+                        "productivity",
+                        "developer",
+                        "document",
+                        "utility",
+                    }:
+
+                        continue
+
+                    # ---------------------------------
+                    # Specialist telemetry
+                    # ---------------------------------
+
+                    if announced_agent != node_name:
+                        announced_agent = node_name
+
+                        event_queue.put(
+                            {
+                                "type": "agent",
+                                "agent": node_name,
+                            }
+                        )
+
+                    # ---------------------------------
+                    # Tool-start telemetry
+                    # ---------------------------------
+
+                    tool_calls = (
+                        getattr(
+                            message_chunk,
+                            "tool_calls",
+                            None,
+                        )
+                        or []
+                    )
+
+                    tool_call_chunks = (
+                        getattr(
+                            message_chunk,
+                            "tool_call_chunks",
+                            None,
+                        )
+                        or []
+                    )
+
+                    for tool_call in [
+                        *tool_calls,
+                        *tool_call_chunks,
+                    ]:
+                        tool_name = (
+                            tool_call.get("name")
+                            if isinstance(
+                                tool_call,
+                                dict,
+                            )
+                            else None
+                        )
+
+                        if (
+                            tool_name
+                            and tool_name
+                            not in started_tools
+                        ):
+                            started_tools.add(tool_name)
+
+                            event_queue.put(
+                                {
+                                    "type": "tool_start",
+                                    "tool": tool_name,
+                                    "agent": node_name,
+                                }
+                            )
+
+                    # ---------------------------------
+                    # User-facing specialist response
+                    # ---------------------------------
+
+                    text = message_to_text(
+                        message_chunk.content
+                    )
 
                     if text:
 
